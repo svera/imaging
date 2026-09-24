@@ -116,10 +116,14 @@ func (p *Profile) create_gray_trc_transformer(forward bool, chromatic_adaptation
 	if err != nil {
 		return err
 	}
+	// callers unconditionally wrap this pipeline with NewNormalizedToXYZ/NewXYZToNormalized
+	// (see transform_for_pcs_colorspace), so pre-scale here the same way load_rgb_matrix does
+	// for the RGB colorant matrix.
+	scaled_white := XYZType{white.X * MAX_ENCODEABLE_XYZ_INVERSE, white.Y * MAX_ENCODEABLE_XYZ_INVERSE, white.Z * MAX_ENCODEABLE_XYZ_INVERSE}
 	if forward {
-		pipeline.Append(NewCurveTransformer("GrayTRC", gc), NewGrayToXYZ(*white), chromatic_adaptation)
+		pipeline.Append(NewCurveTransformer("GrayTRC", gc), NewGrayToXYZ(scaled_white), chromatic_adaptation)
 	} else {
-		pipeline.Append(chromatic_adaptation, NewXYZToGray(*white), NewInverseCurveTransformer("GrayTRC", gc))
+		pipeline.Append(chromatic_adaptation, NewXYZToGray(scaled_white), NewInverseCurveTransformer("GrayTRC", gc))
 	}
 	return nil
 }

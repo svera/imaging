@@ -57,7 +57,9 @@ func buildGrayICCProfile(t *testing.T) []byte {
 	header.Write(make([]byte, 4))                     // Device model
 	header.Write(make([]byte, 8))                     // Device attributes
 	header.Write([]byte{0, 0, 0, 0})                  // Rendering intent (Perceptual)
-	header.Write(make([]byte, 12))                    // PCS illuminant
+	header.Write(encodeS15Fixed16BEForTest(0.9642))   // PCS illuminant (D50) X
+	header.Write(encodeS15Fixed16BEForTest(1.0))      //                      Y
+	header.Write(encodeS15Fixed16BEForTest(0.8249))   //                      Z
 	header.Write(make([]byte, 4))                     // Profile creator
 	header.Write(make([]byte, 16))                    // Profile ID
 	header.Write(make([]byte, 28))                    // Reserved
@@ -92,6 +94,11 @@ func TestConvertGrayToSRGB(t *testing.T) {
 	for i := range img.Pix {
 		img.Pix[i] = uint8(i * 15)
 	}
+	// A mid-gray pixel, at index 8, whose gamma-2.2 device curve is close
+	// enough to sRGB's own gamma that the converted value should land near
+	// its original input, not be pushed toward white by a scaling bug.
+	const midGrayIdx = 8
+	img.Pix[midGrayIdx] = 128
 
 	out, err := ConvertToSRGB(p, icc.PerceptualRenderingIntent, false, img)
 	require.NoError(t, err)
@@ -100,10 +107,18 @@ func TestConvertGrayToSRGB(t *testing.T) {
 	require.True(t, ok, "expected *nrgb.Image, got %T", out)
 	require.Equal(t, img.Bounds(), nimg.Bounds())
 
+	for c := 0; c < 3; c++ {
+		require.InDelta(t, 128, int(nimg.Pix[3*midGrayIdx+c]), 20,
+			"mid-gray input should not be washed out toward white by an XYZ scaling bug")
+	}
+
 	// Brighter input gray levels should map to brighter (or equal) output
 	// luminance: the conversion should be monotonic, not garbage.
 	var prevLuma int
 	for i := 0; i < len(img.Pix); i++ {
+		if i == midGrayIdx {
+			continue
+		}
 		r, g, b := nimg.Pix[3*i], nimg.Pix[3*i+1], nimg.Pix[3*i+2]
 		luma := int(r) + int(g) + int(b)
 		require.GreaterOrEqual(t, luma, prevLuma, "pixel %d should not be darker than the previous one", i)
